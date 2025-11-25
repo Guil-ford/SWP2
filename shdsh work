@@ -1,0 +1,98 @@
+# -*- coding: utf-8 -*-
+def rref_aug(A, b):
+    M = [A[i] + [b[i]] for i in range(3)]
+    rows, cols = 3, 4
+    r = 0
+    pivots = []
+    for c in range(3):
+        pivot = None
+        for i in range(r, rows):
+            if M[i][c] != 0:
+                pivot = i
+                break
+        if pivot is None:
+            continue
+        M[r], M[pivot] = M[pivot], M[r]
+        div = M[r][c]
+        M[r] = [val / div for val in M[r]]
+        for i in range(rows):
+            if i != r and M[i][c] != 0:
+                factor = M[i][c]
+                M[i] = [M[i][j] - factor * M[r][j] for j in range(cols)]
+        pivots.append(c)
+        r += 1
+        if r == rows:
+            break
+    return M, pivots
+
+def rank_from_rref(M):
+    rank = 0
+    for row in M:
+        if any(abs(v) > 1e-12 for v in row[:-1]):
+            rank += 1
+    return rank
+
+def lu_solve(A, b):
+    n = 3
+    L = [[0]*n for _ in range(n)]
+    U = [[0]*n for _ in range(n)]
+    for i in range(n):
+        L[i][i] = 1
+        for j in range(i, n):
+            U[i][j] = A[i][j] - sum(L[i][k]*U[k][j] for k in range(i))
+        for j in range(i+1, n):
+            if abs(U[i][i]) < 1e-12:
+                raise ZeroDivisionError("Singular pivot in LU")
+            L[j][i] = (A[j][i] - sum(L[j][k]*U[k][i] for k in range(i))) / U[i][i]
+    y = [0]*n
+    for i in range(n):
+        y[i] = b[i] - sum(L[i][k]*y[k] for k in range(i))
+    x = [0]*n
+    for i in reversed(range(n)):
+        x[i] = (y[i] - sum(U[i][k]*x[k] for k in range(i+1, n))) / U[i][i]
+    return x
+
+def main():
+    A = []
+    print("Enter the 3x3 coefficient matrix (3 numbers per row):")
+    for i in range(3):
+        row = list(map(float, input(f"Row {i+1}: ").split()))
+        A.append(row)
+    b = list(map(float, input("Enter the constant vector (3 numbers): ").split()))
+    M, pivots = rref_aug(A, b)
+    rank_A = rank_from_rref([row[:-1] for row in M])
+    rank_Ab = rank_from_rref(M)
+    if rank_A < rank_Ab:
+        print("=== No Solution ===")
+        return
+    if rank_A == 3:
+        print("=== Unique Solution (LU Decomposition) ===")
+        sol = lu_solve(A, b)
+        print(f"Solution: x={sol[0]}, y={sol[1]}, z={sol[2]}")
+        return
+    print("=== Infinite Solutions ===")
+    free_cols = [c for c in range(3) if c not in pivots]
+    if len(free_cols) == 1:
+        tname = 't'
+        fv = ['x','y','z'][free_cols[0]]
+        print(f"{fv} = {tname}")
+        for i, pc in enumerate(pivots):
+            var = ['x','y','z'][pc]
+            rhs = M[i][3]
+            coeff_t = M[i][free_cols[0]]
+            print(f"{var} = {rhs} - ({coeff_t})*{tname}")
+    else:
+        sname, tname = 's', 't'
+        f1, f2 = free_cols
+        fv1, fv2 = ['x','y','z'][f1], ['x','y','z'][f2]
+        print(f"{fv1} = {sname}")
+        print(f"{fv2} = {tname}")
+        for i, pc in enumerate(pivots):
+            var = ['x','y','z'][pc]
+            rhs = M[i][3]
+            c1 = M[i][f1]
+            c2 = M[i][f2]
+            print(f"{var} = {rhs} - ({c1})*{sname} - ({c2})*{tname}")
+
+if __name__ == "__main__":
+    main()
