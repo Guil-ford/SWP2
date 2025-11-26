@@ -1,98 +1,189 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-def rref_aug(A, b):
-    M = [A[i] + [b[i]] for i in range(3)]
-    rows, cols = 3, 4
-    r = 0
-    pivots = []
-    for c in range(3):
-        pivot = None
-        for i in range(r, rows):
-            if M[i][c] != 0:
-                pivot = i
+
+class LinearSystemSolver:
+    
+    EPSILON = 1e-12
+    VARS = ['x', 'y', 'z']
+    
+    def __init__(self, A, b):
+        self.A = [row[:] for row in A]
+        self.b = b[:]
+        self.M, self.pivots = self._rref_augmented()
+        
+    def _rref_augmented(self):
+        M = [self.A[i] + [self.b[i]] for i in range(3)]
+        pivots = []
+        r = 0
+        
+        for c in range(3):
+            max_idx = max(range(r, 3), key=lambda i: abs(M[i][c]))
+            if abs(M[max_idx][c]) < self.EPSILON:
+                continue
+                
+            M[r], M[max_idx] = M[max_idx], M[r]
+            
+            pivot_val = M[r][c]
+            M[r] = [val / pivot_val for val in M[r]]
+            
+            for i in range(3):
+                if i != r and abs(M[i][c]) > self.EPSILON:
+                    factor = M[i][c]
+                    M[i] = [M[i][j] - factor * M[r][j] for j in range(4)]
+            
+            pivots.append(c)
+            r += 1
+            if r == 3:
                 break
-        if pivot is None:
-            continue
-        M[r], M[pivot] = M[pivot], M[r]
-        div = M[r][c]
-        M[r] = [val / div for val in M[r]]
-        for i in range(rows):
-            if i != r and M[i][c] != 0:
-                factor = M[i][c]
-                M[i] = [M[i][j] - factor * M[r][j] for j in range(cols)]
-        pivots.append(c)
-        r += 1
-        if r == rows:
+                
+        return M, pivots
+    
+    def _calculate_rank(self, include_augment=False):
+        cols = 4 if include_augment else 3
+        rank = 0
+        for row in self.M:
+            if any(abs(v) > self.EPSILON for v in row[:cols]):
+                rank += 1
+        return rank
+    
+    def _lu_decomposition(self):
+        n = 3
+        L = [[0.0]*n for _ in range(n)]
+        U = [[0.0]*n for _ in range(n)]
+        
+        for i in range(n):
+            L[i][i] = 1.0
+            
+            for j in range(i, n):
+                U[i][j] = self.A[i][j] - sum(L[i][k]*U[k][j] for k in range(i))
+            
+            for j in range(i+1, n):
+                if abs(U[i][i]) < self.EPSILON:
+                    raise ValueError("Singular matrix")
+                L[j][i] = (self.A[j][i] - sum(L[j][k]*U[k][i] for k in range(i))) / U[i][i]
+        
+        y = [0.0]*n
+        for i in range(n):
+            y[i] = self.b[i] - sum(L[i][k]*y[k] for k in range(i))
+        
+        x = [0.0]*n
+        for i in reversed(range(n)):
+            x[i] = (y[i] - sum(U[i][k]*x[k] for k in range(i+1, n))) / U[i][i]
+        
+        return x
+    
+    def _format_parametric_solution(self):
+        free_cols = [c for c in range(3) if c not in self.pivots]
+        params = ['s', 't']
+        lines = []
+        
+        for i, fc in enumerate(free_cols):
+            lines.append(f"{self.VARS[fc]} = {params[i]}")
+        
+        for i, pc in enumerate(self.pivots):
+            const = self.M[i][3]
+            terms = [f"{const:.6f}"]
+            
+            for j, fc in enumerate(free_cols):
+                coeff = self.M[i][fc]
+                if abs(coeff) > self.EPSILON:
+                    sign = '-' if coeff > 0 else '+'
+                    terms.append(f"{sign} {abs(coeff):.6f}*{params[j]}")
+            
+            lines.append(f"{self.VARS[pc]} = {' '.join(terms)}")
+        
+        return lines
+    
+    def solve(self):
+        rank_A = self._calculate_rank(include_augment=False)
+        rank_Ab = self._calculate_rank(include_augment=True)
+        
+        if rank_A < rank_Ab:
+            return {
+                'type': 'no_solution',
+                'message': 'Inconsistent system'
+            }
+        
+        if rank_A == 3:
+            try:
+                solution = self._lu_decomposition()
+                return {
+                    'type': 'unique',
+                    'solution': dict(zip(self.VARS, solution)),
+                    'method': 'LU Decomposition'
+                }
+            except ValueError:
+                solution = [self.M[i][3] for i in range(3)]
+                return {
+                    'type': 'unique',
+                    'solution': dict(zip(self.VARS, solution)),
+                    'method': 'RREF (LU failed)'
+                }
+        
+        return {
+            'type': 'infinite',
+            'solution': self._format_parametric_solution(),
+            'free_variables': len([c for c in range(3) if c not in self.pivots])
+        }
+
+
+def print_solution(result):
+    print("\n" + "="*50)
+    
+    if result['type'] == 'no_solution':
+        print("No Solution")
+        print(result['message'])
+        
+    elif result['type'] == 'unique':
+        print(f"Unique Solution ({result['method']})")
+        for var, val in result['solution'].items():
+            print(f"  {var} = {val:.6f}")
+            
+    elif result['type'] == 'infinite':
+        print(f"Infinite Solutions ({result['free_variables']} free variable(s))")
+        for line in result['solution']:
+            print(f"  {line}")
+    
+    print("="*50)
+
+
+def get_input():
+    print("3x3 Linear System Solver")
+    print("-" * 50)
+    
+    A = []
+    print("\nEnter coefficient matrix (3 numbers per row):")
+    for i in range(3):
+        while True:
+            try:
+                row = list(map(float, input(f"  Row {i+1}: ").split()))
+                if len(row) != 3:
+                    print("    Please enter exactly 3 numbers")
+                    continue
+                A.append(row)
+                break
+            except ValueError:
+                print("    Please enter valid numbers")
+    
+    while True:
+        try:
+            b = list(map(float, input("\nEnter constant vector (3 numbers): ").split()))
+            if len(b) != 3:
+                print("  Please enter exactly 3 numbers")
+                continue
             break
-    return M, pivots
+        except ValueError:
+            print("  Please enter valid numbers")
+    
+    return A, b
 
-def rank_from_rref(M):
-    rank = 0
-    for row in M:
-        if any(abs(v) > 1e-12 for v in row[:-1]):
-            rank += 1
-    return rank
-
-def lu_solve(A, b):
-    n = 3
-    L = [[0]*n for _ in range(n)]
-    U = [[0]*n for _ in range(n)]
-    for i in range(n):
-        L[i][i] = 1
-        for j in range(i, n):
-            U[i][j] = A[i][j] - sum(L[i][k]*U[k][j] for k in range(i))
-        for j in range(i+1, n):
-            if abs(U[i][i]) < 1e-12:
-                raise ZeroDivisionError("Singular pivot in LU")
-            L[j][i] = (A[j][i] - sum(L[j][k]*U[k][i] for k in range(i))) / U[i][i]
-    y = [0]*n
-    for i in range(n):
-        y[i] = b[i] - sum(L[i][k]*y[k] for k in range(i))
-    x = [0]*n
-    for i in reversed(range(n)):
-        x[i] = (y[i] - sum(U[i][k]*x[k] for k in range(i+1, n))) / U[i][i]
-    return x
 
 def main():
-    A = []
-    print("Enter the 3x3 coefficient matrix (3 numbers per row):")
-    for i in range(3):
-        row = list(map(float, input(f"Row {i+1}: ").split()))
-        A.append(row)
-    b = list(map(float, input("Enter the constant vector (3 numbers): ").split()))
-    M, pivots = rref_aug(A, b)
-    rank_A = rank_from_rref([row[:-1] for row in M])
-    rank_Ab = rank_from_rref(M)
-    if rank_A < rank_Ab:
-        print("=== No Solution ===")
-        return
-    if rank_A == 3:
-        print("=== Unique Solution (LU Decomposition) ===")
-        sol = lu_solve(A, b)
-        print(f"Solution: x={sol[0]}, y={sol[1]}, z={sol[2]}")
-        return
-    print("=== Infinite Solutions ===")
-    free_cols = [c for c in range(3) if c not in pivots]
-    if len(free_cols) == 1:
-        tname = 't'
-        fv = ['x','y','z'][free_cols[0]]
-        print(f"{fv} = {tname}")
-        for i, pc in enumerate(pivots):
-            var = ['x','y','z'][pc]
-            rhs = M[i][3]
-            coeff_t = M[i][free_cols[0]]
-            print(f"{var} = {rhs} - ({coeff_t})*{tname}")
-    else:
-        sname, tname = 's', 't'
-        f1, f2 = free_cols
-        fv1, fv2 = ['x','y','z'][f1], ['x','y','z'][f2]
-        print(f"{fv1} = {sname}")
-        print(f"{fv2} = {tname}")
-        for i, pc in enumerate(pivots):
-            var = ['x','y','z'][pc]
-            rhs = M[i][3]
-            c1 = M[i][f1]
-            c2 = M[i][f2]
-            print(f"{var} = {rhs} - ({c1})*{sname} - ({c2})*{tname}")
+    A, b = get_input()
+    solver = LinearSystemSolver(A, b)
+    result = solver.solve()
+    print_solution(result)
+
 
 if __name__ == "__main__":
     main()
